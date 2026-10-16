@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/emu_icon.png" alt="emu" width="140" height="140" />
+  <img src="docs/assets/emu_icon.gif" alt="emu" width="140" height="140" />
 </p>
 
 <h1 align="center">emu — Flutter debug driver</h1>
