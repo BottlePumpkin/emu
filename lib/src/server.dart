@@ -822,7 +822,9 @@ class EmuServer {
     final seq = logStore.lastSeq;
     final ProcessResult result;
     try {
-      result = await Process.run(cmd.executable, cmd.arguments);
+      // Bounded: an offline/unauthorized device can hang adb, and with it the
+      // dashboard's request.
+      result = await runWithTimeout(cmd.executable, cmd.arguments);
     } catch (e) {
       return _json({'ok': false, 'url': url, 'error': '$e'}, status: 500);
     }

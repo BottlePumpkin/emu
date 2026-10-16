@@ -65,6 +65,7 @@ button {
 button:hover { background: #30363d; }
 button:active { transform: translateY(1px); }
 button.danger:hover { background: #8b2c28; border-color: var(--error); }
+button:disabled { opacity: .5; cursor: default; pointer-events: none; }
 
 .toolbar { background: var(--bg); }
 #search {

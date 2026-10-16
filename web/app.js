@@ -35,6 +35,7 @@ const els = {
   textInput: document.getElementById('text-input'),
   urlInput: document.getElementById('url-input'),
   urlHistory: document.getElementById('url-history'),
+  urlOpen: document.getElementById('url-open'),
 };
 
 const LEVEL_RANK = { debug: 0, info: 1, system: 1, warn: 2, error: 3 };
@@ -109,7 +110,7 @@ function setStatus(s) {
   // Re-armed when the app leaves `running`, so a restart loads a fresh frame.
   if (st === 'running' && !state.shotLoaded) {
     state.shotLoaded = true;
-    refreshShot();
+    refreshShot(2);
   } else if (st !== 'running') {
     state.shotLoaded = false;
   }
@@ -165,12 +166,18 @@ async function action(path, label) {
 // ---- interactive screen -----------------------------------------------------
 
 // Refresh the screenshot. Bytes come inline (?inline=1); cache-bust each load.
-function refreshShot() {
+// [retries]: for the automatic first load — the capture can fail right as the
+// app reaches `running`, and nothing else would ask again until ↻.
+function refreshShot(retries = 0) {
   const img = els.shotImg;
   // Only the first frame gets the loader; later refreshes keep the old frame up.
   if (img.hidden) showLoading('loading screen…');
   img.onload = () => { img.hidden = false; els.screenEmpty.hidden = true; hideLoading(); };
   img.onerror = () => {
+    if (retries > 0 && state.lastRunState === 'running') {
+      setTimeout(() => refreshShot(retries - 1), 1000);
+      return;
+    }
     img.hidden = true;
     hideLoading();
     els.screenEmpty.textContent = 'screen unavailable (app not running?)';
@@ -255,7 +262,12 @@ const URL_HISTORY_KEY = 'emu.urlHistory';
 const URL_HISTORY_MAX = 10;
 
 function loadUrlHistory() {
-  try { return JSON.parse(localStorage.getItem(URL_HISTORY_KEY)) || []; } catch (_) { return []; }
+  // Anything but an array of strings (another app on this localhost port, a
+  // hand edit) would throw in render — at page load, before connect().
+  try {
+    const v = JSON.parse(localStorage.getItem(URL_HISTORY_KEY));
+    return Array.isArray(v) ? v.filter(u => typeof u === 'string') : [];
+  } catch (_) { return []; }
 }
 function renderUrlHistory() {
   els.urlHistory.innerHTML = loadUrlHistory()
@@ -267,9 +279,12 @@ function rememberUrl(url) {
   renderUrlHistory();
 }
 
+// One at a time: the request holds for the settle (up to ~4s), and a second
+// Enter/click meanwhile would open the link again.
 async function openUrl() {
   const url = els.urlInput.value.trim();
-  if (!url) return;
+  if (!url || els.urlOpen.disabled) return;
+  els.urlOpen.disabled = true;
   toast(`open ${url}`);
   try {
     const r = await fetch(`/api/open-url?url=${encodeURIComponent(url)}`, { method: 'POST' });
@@ -277,6 +292,7 @@ async function openUrl() {
     if (j.ok) rememberUrl(url);
     toast(j.ok ? `opened ${url}` : `open-url: ${j.error || 'failed'}`);
   } catch (e) { toast(`open-url failed: ${e}`); }
+  finally { els.urlOpen.disabled = false; }
   refreshShot(); // the server already waited for settle
 }
 
@@ -285,10 +301,10 @@ els.shotAuto.addEventListener('change', () => {
   clearInterval(autoTimer);
   if (els.shotAuto.checked) { refreshShot(); autoTimer = setInterval(refreshShot, 1500); }
 });
-document.getElementById('shot-refresh').onclick = refreshShot;
+document.getElementById('shot-refresh').onclick = () => refreshShot();
 document.getElementById('text-send').onclick = sendText;
 els.textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
-document.getElementById('url-open').onclick = openUrl;
+els.urlOpen.onclick = openUrl;
 els.urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') openUrl(); });
 renderUrlHistory();
 
