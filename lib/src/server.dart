@@ -15,6 +15,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'device_lease.dart';
 import 'device_manager.dart';
 import 'device_setup.dart';
+import 'diff.dart';
 import 'engine.dart';
 import 'error_parser.dart';
 import 'eval.dart';
@@ -147,6 +148,11 @@ class EmuServer {
 
   late final LogStore logStore;
   late final FlutterEngine engine;
+
+  /// The dashboard's Changes tab / `emu diff`. Snapshots the working tree on
+  /// every launch and reload so "what did that reload apply" is answerable.
+  late final GitDiff diff;
+  AppRunState? _lastRunState;
   final DeviceManager devices = DeviceManager();
 
   HttpServer? _http;
@@ -162,6 +168,9 @@ class EmuServer {
     // Fan out engine activity to connected dashboards.
     logStore.stream.listen((e) => _broadcast({'type': 'log', 'entry': e.toJson()}));
     engine.statusStream.listen((s) => _broadcast({'type': 'status', 'status': s.toJson()}));
+
+    diff = GitDiff(session.projectRoot.path);
+    engine.statusStream.listen(_snapshotOnReload);
 
     _http = await _bind(requestedPort);
     session.writeServerInfo(port: _http!.port, pid: pid);
@@ -608,6 +617,10 @@ class EmuServer {
         return _text(req);
       case '/api/open-url':
         return _openUrl(req);
+      case '/api/diff/files':
+        return _diffFiles(req);
+      case '/api/diff/file':
+        return _diffFile(req);
       case '/api/first-frame':
         return _firstFrame(req);
       case '/api/settle':
@@ -800,6 +813,62 @@ class EmuServer {
       () => runText(uri, text, append: append),
       {'text': text, 'append': append},
     );
+  }
+
+  /// Entering `starting` (launch, cold restart) or `restarting` (hot
+  /// reload/restart) is when new code reaches the app — capture the working
+  /// tree then. Both the CLI and the dashboard drive reloads through the
+  /// engine, so this sees every one.
+  Future<void> _snapshotOnReload(AppStatus s) async {
+    final prev = _lastRunState;
+    _lastRunState = s.state;
+    if (s.state == prev) return;
+    final reason = switch (s.state) {
+      AppRunState.starting => 'launch',
+      AppRunState.restarting => 'reload',
+      _ => null,
+    };
+    if (reason == null) return;
+    await diff.record(reason);
+    _broadcast({'type': 'diff', 'snapshots': diff.snapshots.map((e) => e.toJson()).toList()});
+  }
+
+  /// Resolves `scope`/`base` query params to a range (null: nothing to compare
+  /// yet); throws [DiffException] for a bad scope or base.
+  Future<(DiffScope, String?, (String, String)?)> _diffRange(Map<String, String> q) async {
+    final scope = DiffScope.fromWire(q['scope'] ?? 'head');
+    if (scope == null) throw DiffException('unknown scope: ${q['scope']} (head|base|reload|pending)');
+    final base = q['base'] ?? (scope == DiffScope.base ? await diff.defaultBase() : null);
+    return (scope, base, await diff.range(scope, base: base));
+  }
+
+  Future<Response> _diffFiles(Request req) async {
+    if (!await diff.isRepo()) return _json({'git': false, 'files': []});
+    try {
+      final (scope, base, range) = await _diffRange(req.url.queryParameters);
+      return _json({
+        'git': true,
+        'scope': scope.wire,
+        if (base != null) 'base': base,
+        'snapshots': diff.snapshots.map((e) => e.toJson()).toList(),
+        'files': range == null ? [] : (await diff.files(range)).map((f) => f.toJson()).toList(),
+        if (range == null) 'note': scope == DiffScope.base ? 'no base branch found' : 'no reload recorded yet',
+      });
+    } on DiffException catch (e) {
+      return _json({'git': true, 'error': e.message}, status: 400);
+    }
+  }
+
+  Future<Response> _diffFile(Request req) async {
+    final path = req.url.queryParameters['path'];
+    if (path == null || path.isEmpty) return _json({'error': 'path is required'}, status: 400);
+    if (!await diff.isRepo()) return _json({'git': false, 'patch': ''});
+    try {
+      final (_, _, range) = await _diffRange(req.url.queryParameters);
+      return _json({'git': true, 'path': path, 'patch': range == null ? '' : await diff.patch(range, path)});
+    } on DiffException catch (e) {
+      return _json({'git': true, 'error': e.message}, status: 400);
+    }
   }
 
   /// Deep link from the dashboard — same argv-only invocation as `emu open-url`
