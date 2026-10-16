@@ -11,6 +11,8 @@
   같은 방식(argv 배열, Android는 기기 셸용 인용)으로 기기에 보내고, settle 후 화면을 새로 고친다.
   최근 10개는 브라우저별로 기억해 자동완성으로 제공. 서버 API `POST /api/open-url?url=`.
 - 대시보드가 앱이 `running` 이 되면 첫 스크린샷을 자동으로 불러온다(↻ 를 누르지 않아도 됨).
+- 대시보드 screen 패널 로딩 표시 — 앱 기동 중·첫 화면을 불러오는 동안 emu 아이콘이 눈을 깜빡이는
+  Lottie 애니메이션(`web/loading.json`, 재생기 `web/vendor/lottie_light.min.js` 동봉)을 보여준다.
 
 ### Fixed
 - 대시보드 첫 진입 시 screen 패널에 깨진 이미지 아이콘과 "device screen" 대체 텍스트가 보이던

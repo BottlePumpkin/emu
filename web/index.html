@@ -52,6 +52,10 @@
       </div>
       <div class="screen-view" id="screen-view">
         <img id="shot-img" alt="device screen" hidden />
+        <div class="screen-loading" id="screen-loading" hidden>
+          <div class="screen-loading-anim" id="screen-loading-anim"></div>
+          <div class="screen-loading-label" id="screen-loading-label">loading screen…</div>
+        </div>
         <div class="screen-empty" id="screen-empty">no screen yet — press ↻ (needs a running app)</div>
       </div>
       <div class="screen-hint">click to tap · drag to swipe</div>
@@ -69,6 +73,7 @@
 
   <div class="actionbar" id="toast" hidden></div>
 
+  <script src="vendor/lottie_light.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -1085,6 +1085,7 @@ String _contentType(String path) {
   if (path.endsWith('.html')) return 'text/html; charset=utf-8';
   if (path.endsWith('.js')) return 'application/javascript; charset=utf-8';
   if (path.endsWith('.css')) return 'text/css; charset=utf-8';
+  if (path.endsWith('.json')) return 'application/json';
   if (path.endsWith('.svg')) return 'image/svg+xml';
   if (path.endsWith('.png')) return 'image/png';
   return 'application/octet-stream';

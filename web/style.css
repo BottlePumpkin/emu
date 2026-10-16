@@ -111,6 +111,10 @@ button.danger:hover { background: #8b2c28; border-color: var(--error); }
    src-less <img> renders as a broken-image icon next to the empty message. */
 #shot-img[hidden] { display: none; }
 .screen-empty { color: var(--muted); font-size: 12px; text-align: center; margin: auto; padding: 20px; }
+.screen-loading { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.screen-loading[hidden] { display: none; }
+.screen-loading-anim { width: 96px; height: 96px; }
+.screen-loading-label { color: var(--muted); font-size: 12px; }
 .screen-hint { color: var(--muted); font-size: 11px; text-align: center; padding: 4px; border-top: 1px solid var(--border); }
 .screen-input { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); }
 .screen-input + .screen-input { border-top: none; padding-top: 0; }

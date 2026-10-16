@@ -27,6 +27,9 @@ const els = {
   toast: document.getElementById('toast'),
   shotImg: document.getElementById('shot-img'),
   screenEmpty: document.getElementById('screen-empty'),
+  screenLoading: document.getElementById('screen-loading'),
+  screenLoadingAnim: document.getElementById('screen-loading-anim'),
+  screenLoadingLabel: document.getElementById('screen-loading-label'),
   shotAuto: document.getElementById('shot-auto'),
   textInput: document.getElementById('text-input'),
   urlInput: document.getElementById('url-input'),
@@ -109,6 +112,11 @@ function setStatus(s) {
   } else if (st !== 'running') {
     state.shotLoaded = false;
   }
+  // Until there is a frame to show, say why: the app is on its way, or not running.
+  if (els.shotImg.hidden) {
+    if (st === 'starting' || st === 'restarting') showLoading('starting app…');
+    else if (st !== 'running') hideLoading();
+  }
   // Real DevTools URL from the daemon (devtools.serve), already aimed at this
   // app's VM Service. Hidden until DevTools is actually being served.
   if (s.devToolsUri) {
@@ -153,13 +161,35 @@ async function action(path, label) {
 // Refresh the screenshot. Bytes come inline (?inline=1); cache-bust each load.
 function refreshShot() {
   const img = els.shotImg;
-  img.onload = () => { img.hidden = false; els.screenEmpty.hidden = true; };
+  // Only the first frame gets the loader; later refreshes keep the old frame up.
+  if (img.hidden) showLoading('loading screen…');
+  img.onload = () => { img.hidden = false; els.screenEmpty.hidden = true; hideLoading(); };
   img.onerror = () => {
     img.hidden = true;
-    els.screenEmpty.hidden = false;
+    hideLoading();
     els.screenEmpty.textContent = 'screen unavailable (app not running?)';
   };
   img.src = `/api/screenshot?inline=1&t=${Date.now()}`;
+}
+
+// Loading placeholder: the emu mark blinking (web/loading.json, a Lottie
+// animation). Created on first use; without the player it degrades to the label.
+let loadingAnim = null;
+function showLoading(label) {
+  els.screenLoadingLabel.textContent = label;
+  els.screenEmpty.hidden = true;
+  els.screenLoading.hidden = false;
+  if (!loadingAnim && window.lottie) {
+    loadingAnim = window.lottie.loadAnimation({
+      container: els.screenLoadingAnim, renderer: 'svg', loop: true, autoplay: true, path: 'loading.json',
+    });
+  }
+  loadingAnim?.play();
+}
+function hideLoading() {
+  els.screenLoading.hidden = true;
+  els.screenEmpty.hidden = !els.shotImg.hidden;
+  loadingAnim?.pause();
 }
 // After an input action, show its effect shortly after it lands.
 function scheduleRefresh() { setTimeout(refreshShot, 350); }
