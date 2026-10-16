@@ -11,6 +11,7 @@ const state = {
   search: '',
   regex: false,
   autoscroll: true,
+  shotLoaded: false,  // first screenshot of the current `running` session fetched
 };
 
 const els = {
@@ -28,6 +29,8 @@ const els = {
   screenEmpty: document.getElementById('screen-empty'),
   shotAuto: document.getElementById('shot-auto'),
   textInput: document.getElementById('text-input'),
+  urlInput: document.getElementById('url-input'),
+  urlHistory: document.getElementById('url-history'),
 };
 
 const LEVEL_RANK = { debug: 0, info: 1, system: 1, warn: 2, error: 3 };
@@ -98,6 +101,14 @@ function setStatus(s) {
   els.statePill.textContent = st;
   els.statePill.className = 'pill ' + st;
   els.deviceName.textContent = s.deviceName || '';
+  // Show the device as soon as the app is up, instead of waiting for ↻.
+  // Re-armed when the app leaves `running`, so a restart loads a fresh frame.
+  if (st === 'running' && !state.shotLoaded) {
+    state.shotLoaded = true;
+    refreshShot();
+  } else if (st !== 'running') {
+    state.shotLoaded = false;
+  }
   // Real DevTools URL from the daemon (devtools.serve), already aimed at this
   // app's VM Service. Hidden until DevTools is actually being served.
   if (s.devToolsUri) {
@@ -201,6 +212,38 @@ async function sendText() {
   scheduleRefresh();
 }
 
+// Deep links: recent URLs are kept per browser (localStorage) and offered
+// through the input's <datalist>. Storage can throw (private mode), so every
+// access degrades to "no history" rather than breaking the button.
+const URL_HISTORY_KEY = 'emu.urlHistory';
+const URL_HISTORY_MAX = 10;
+
+function loadUrlHistory() {
+  try { return JSON.parse(localStorage.getItem(URL_HISTORY_KEY)) || []; } catch (_) { return []; }
+}
+function renderUrlHistory() {
+  els.urlHistory.innerHTML = loadUrlHistory()
+    .map(u => `<option value="${escapeHtml(u)}"></option>`).join('');
+}
+function rememberUrl(url) {
+  const next = [url, ...loadUrlHistory().filter(u => u !== url)].slice(0, URL_HISTORY_MAX);
+  try { localStorage.setItem(URL_HISTORY_KEY, JSON.stringify(next)); } catch (_) {}
+  renderUrlHistory();
+}
+
+async function openUrl() {
+  const url = els.urlInput.value.trim();
+  if (!url) return;
+  toast(`open ${url}`);
+  try {
+    const r = await fetch(`/api/open-url?url=${encodeURIComponent(url)}`, { method: 'POST' });
+    const j = await r.json();
+    if (j.ok) rememberUrl(url);
+    toast(j.ok ? `opened ${url}` : `open-url: ${j.error || 'failed'}`);
+  } catch (e) { toast(`open-url failed: ${e}`); }
+  refreshShot(); // the server already waited for settle
+}
+
 let autoTimer = null;
 els.shotAuto.addEventListener('change', () => {
   clearInterval(autoTimer);
@@ -209,6 +252,9 @@ els.shotAuto.addEventListener('change', () => {
 document.getElementById('shot-refresh').onclick = refreshShot;
 document.getElementById('text-send').onclick = sendText;
 els.textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendText(); });
+document.getElementById('url-open').onclick = openUrl;
+els.urlInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') openUrl(); });
+renderUrlHistory();
 
 let toastTimer;
 function toast(text) {

@@ -56,8 +56,13 @@
       </div>
       <div class="screen-hint">click to tap · drag to swipe</div>
       <div class="screen-input">
-        <input id="text-input" type="text" placeholder="type into focused field…" autocomplete="off" />
+        <input id="text-input" class="field" type="text" placeholder="type into focused field…" autocomplete="off" />
         <button id="text-send" title="Send text (tap a field first)">send</button>
+      </div>
+      <div class="screen-input">
+        <input id="url-input" class="field" type="text" list="url-history" placeholder="deep link, e.g. myapp://home?tab=1" autocomplete="off" spellcheck="false" />
+        <datalist id="url-history"></datalist>
+        <button id="url-open" title="Open deep link on the device (emu open-url)">open</button>
       </div>
     </aside>
   </div>
