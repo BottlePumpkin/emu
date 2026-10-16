@@ -12,6 +12,7 @@ const state = {
   regex: false,
   autoscroll: true,
   shotLoaded: false,  // first screenshot of the current `running` session fetched
+  lastRunState: null, // previous app state, to spot the edge into `starting`
 };
 
 const els = {
@@ -112,6 +113,11 @@ function setStatus(s) {
   } else if (st !== 'running') {
     state.shotLoaded = false;
   }
+  // A (re)launch — first `up` or a cold restart — makes the last frame stale;
+  // drop it so the loader shows instead. Hot reload/restart only pass through
+  // `restarting`, where the current frame is still the right one to show.
+  if (st === 'starting' && state.lastRunState !== 'starting') els.shotImg.hidden = true;
+  state.lastRunState = st;
   // Until there is a frame to show, say why: the app is on its way, or not running.
   if (els.shotImg.hidden) {
     if (st === 'starting' || st === 'restarting') showLoading('starting app…');
