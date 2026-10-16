@@ -804,7 +804,11 @@ class EmuServer {
 
   /// Deep link from the dashboard — same argv-only invocation as `emu open-url`
   /// (see [buildOpenUrlCommand]), then a best-effort settle so the caller's
-  /// next screenshot shows the destination rather than the transition.
+  /// next screenshot shows the destination rather than the transition. The
+  /// settle is capped well below the CLI's 10s: an app that never goes quiet
+  /// (looping animation, streaming list) would otherwise stall the button. The
+  /// outer timeout matters too — `timeout` only bounds the poll loop, and right
+  /// after launch the first VM `evaluate` alone can take 10s+.
   Future<Response> _openUrl(Request req) async {
     final url = req.url.queryParameters['url'];
     if (url == null || url.isEmpty) {
@@ -826,7 +830,10 @@ class EmuServer {
       return _json({'ok': false, 'url': url, 'error': '${result.stderr}'.trim()}, status: 500);
     }
     final uri = engine.status.vmServiceUri;
-    if (uri != null) await waitForSettle(uri);
+    if (uri != null) {
+      await waitForSettle(uri, timeout: const Duration(seconds: 3))
+          .timeout(const Duration(seconds: 4), onTimeout: () => false);
+    }
     return _json({'ok': true, 'url': url, 'seq': seq});
   }
 
