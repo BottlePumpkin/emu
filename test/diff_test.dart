@@ -61,6 +61,15 @@ void main() {
     );
   });
 
+  test('isWatchNoise skips build and tool directories', () {
+    for (final p in ['.git/index', 'build/app/x.o', '.dart_tool/pkg', 'ios/Pods/a.h', '.emu/run.jsonl', 'a/build/b', '']) {
+      expect(isWatchNoise(p), isTrue, reason: p);
+    }
+    for (final p in ['lib/main.dart', 'lib/builder.dart', 'pubspec.yaml', 'lib/build_info.dart']) {
+      expect(isWatchNoise(p), isFalse, reason: p);
+    }
+  });
+
   test('DiffScope wire names round-trip', () {
     for (final s in DiffScope.values) {
       expect(DiffScope.fromWire(s.wire), s);

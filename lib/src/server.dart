@@ -153,6 +153,12 @@ class EmuServer {
   /// every launch and reload so "what did that reload apply" is answerable.
   late final GitDiff diff;
   AppRunState? _lastRunState;
+
+  /// Watches the project so the Changes tab updates as files are edited,
+  /// not only on reload. Debounced: an editor save or a formatter run is a
+  /// burst of events.
+  StreamSubscription<FileSystemEvent>? _fileWatch;
+  Timer? _fileWatchDebounce;
   final DeviceManager devices = DeviceManager();
 
   HttpServer? _http;
@@ -171,6 +177,7 @@ class EmuServer {
 
     diff = GitDiff(session.projectRoot.path);
     engine.statusStream.listen(_snapshotOnReload);
+    unawaited(_watchFiles());
 
     _http = await _bind(requestedPort);
     session.writeServerInfo(port: _http!.port, pid: pid);
@@ -474,6 +481,8 @@ class EmuServer {
       if (id == null || claimed) return;
       claimed = true;
       await _postHocClaim?.cancel();
+    _fileWatchDebounce?.cancel();
+    await _fileWatch?.cancel();
       if (!await _claim(id, opts)) {
         logStore.add(
             '${leaseConflictMessage(id, _lastConflict!)}\n'
@@ -831,6 +840,22 @@ class EmuServer {
     if (reason == null) return;
     await diff.record(reason);
     _broadcast({'type': 'diff', 'snapshots': diff.snapshots.map((e) => e.toJson()).toList()});
+  }
+
+  Future<void> _watchFiles() async {
+    if (!await diff.isRepo() || _disposed) return;
+    final root = session.projectRoot.path;
+    try {
+      _fileWatch = session.projectRoot.watch(recursive: true).listen((e) {
+        final rel = e.path.startsWith(root) ? e.path.substring(root.length).replaceFirst(RegExp(r'^[/\\]'), '') : e.path;
+        if (isWatchNoise(rel)) return;
+        _fileWatchDebounce?.cancel();
+        _fileWatchDebounce = Timer(const Duration(milliseconds: 400), () => _broadcast({'type': 'diff', 'reason': 'files'}));
+      }, onError: (_) {});
+    } catch (_) {
+      // No recursive watch on this platform — the tab still updates on reload
+      // and on its refresh button.
+    }
   }
 
   /// Resolves `scope`/`base` query params to a range (null: nothing to compare

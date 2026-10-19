@@ -674,7 +674,7 @@ emu memory --diff-across "emu tap --text '상세보기' && emu tap --text '뒤�
 - **Changes 탭**(Logs 옆, git 프로젝트만) — 바뀐 파일 목록(+/− 줄 수)과 diff를 네 범위로 본다:
   커밋 안 한 변경, 기준 브랜치 이후, **마지막 reload에 반영된 변경**, **아직 reload 안 된 변경**.
   서버가 기동·hot reload/restart 때마다 작업 트리를 스냅샷(새 파일 포함, 임시 인덱스 사용 —
-  실제 인덱스·파일은 건드리지 않음)해 두므로 reload 범위는 저절로 갱신된다.
+  실제 인덱스·파일은 건드리지 않음)해 두고 프로젝트를 감시하므로, 파일을 저장하거나 reload하면 탭이 실시간으로 갱신된다.
   생성 파일(`*.g.dart`, `*.freezed.dart`, vendor, lock)은 기본으로 숨긴다.
 - 상태바 — 기기, 앱 상태, **DevTools 링크**(`devtools.serve` 로 띄운 실제 DevTools)
 

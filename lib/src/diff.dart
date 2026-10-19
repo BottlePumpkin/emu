@@ -113,6 +113,16 @@ String? pickDefaultBase(Iterable<String> branches, {String? current}) {
   return null;
 }
 
+const _watchNoise = {
+  '.git', '.dart_tool', 'build', '.emu', '.idea', '.gradle', 'node_modules', 'Pods', '.symlinks', 'DerivedData',
+};
+
+/// Whether a file event at [relPath] (relative to the project) is tool or
+/// build churn rather than an edit — `flutter run` alone rewrites `build/`
+/// and `.dart_tool/` constantly, which would otherwise re-diff in a loop.
+bool isWatchNoise(String relPath) =>
+    relPath.isEmpty || relPath.split(RegExp(r'[/\\]')).any(_watchNoise.contains);
+
 /// A captured working tree at a launch or reload.
 class TreeSnapshot {
   TreeSnapshot(this.tree, this.reason, this.at);

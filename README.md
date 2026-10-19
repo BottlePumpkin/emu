@@ -730,7 +730,8 @@ to its starting state is the leak signal this is built to catch.
   a unified diff, in four scopes: uncommitted, since the base branch, **applied by the
   last reload**, **not reloaded yet**. The server snapshots the working tree (untracked
   files included, via a throwaway index — your index and files are untouched) on every
-  launch and hot reload/restart, so the reload scopes refresh by themselves.
+  launch and hot reload/restart and watches the project, so the tab updates live as you
+  edit and reload.
   Generated files (`*.g.dart`, `*.freezed.dart`, vendored, lock files) are hidden by default.
 - Status bar — device, app state, **DevTools link** (a real DevTools served via
   `devtools.serve`).

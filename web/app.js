@@ -147,7 +147,7 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'log') appendEntry(msg.entry);
     else if (msg.type === 'status') setStatus(msg.status);
-    else if (msg.type === 'diff') loadDiffFiles(); // a launch/reload just snapshotted the tree
+    else if (msg.type === 'diff') loadDiffFiles(); // files edited, or a launch/reload snapshotted the tree
   };
 }
 
@@ -311,8 +311,8 @@ renderUrlHistory();
 
 // ---- changes tab ------------------------------------------------------------
 // git diff of the project in four scopes (see lib/src/diff.dart). The server
-// snapshots the working tree on every launch/reload and pushes a `diff`
-// message, so "applied by last reload" refreshes by itself.
+// snapshots the working tree on every launch/reload and watches the project
+// for edits; either pushes a `diff` message, so the tab stays live.
 
 const diffEls = {
   tab: document.getElementById('tab-changes'),
@@ -324,7 +324,7 @@ const diffEls = {
   files: document.getElementById('diff-files'),
   view: document.getElementById('diff-view'),
 };
-const diffState = { files: [], current: null, loading: false, again: false };
+const diffState = { files: [], current: null, loading: false, again: false, shown: null };
 const DIFF_PREFS_KEY = 'emu.diffPrefs';
 
 function loadDiffPrefs() {
@@ -360,9 +360,13 @@ async function loadDiffFiles() {
   if (diffState.loading) { diffState.again = true; return; }
   diffState.loading = true;
   diffEls.base.hidden = diffEls.scope.value !== 'base';
+  const query = diffQuery();
   try {
-    const r = await fetch(`/api/diff/files?${diffQuery()}`);
+    const r = await fetch(`/api/diff/files?${query}`);
     const j = await r.json();
+    // The scope/base changed while this was in flight: its answer is for the
+    // old selection — drop it and fetch again (finally) instead of mislabeling.
+    if (diffQuery() !== query) { diffState.again = true; return; }
     if (j.git === false) { diffEls.tab.hidden = true; return; }
     diffEls.tab.hidden = false;
     if (j.error) {
@@ -420,7 +424,9 @@ async function loadDiffPatch(file) {
     const j = await r.json();
     if (diffState.current !== path) return; // the user moved on while this loaded
     view.innerHTML = head + (j.error ? `<div class="diff-note">${escapeHtml(j.error)}</div>` : renderPatch(j.patch || ''));
-    view.scrollTop = 0;
+    // A live refresh of the same file keeps the reader's place; a new file starts at the top.
+    if (diffState.shown !== path) view.scrollTop = 0;
+    diffState.shown = path;
   } catch (e) {
     view.innerHTML = head + `<div class="diff-note">failed to load: ${escapeHtml(String(e))}</div>`;
   }
