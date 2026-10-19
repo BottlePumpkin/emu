@@ -159,6 +159,7 @@ class EmuServer {
   /// burst of events.
   StreamSubscription<FileSystemEvent>? _fileWatch;
   Timer? _fileWatchDebounce;
+  StreamSubscription<AppStatus>? _snapshotSub;
   final DeviceManager devices = DeviceManager();
 
   HttpServer? _http;
@@ -176,7 +177,7 @@ class EmuServer {
     engine.statusStream.listen((s) => _broadcast({'type': 'status', 'status': s.toJson()}));
 
     diff = GitDiff(session.projectRoot.path);
-    engine.statusStream.listen(_snapshotOnReload);
+    _snapshotSub = engine.statusStream.listen(_snapshotOnReload);
     unawaited(_watchFiles());
 
     _http = await _bind(requestedPort);
@@ -481,8 +482,6 @@ class EmuServer {
       if (id == null || claimed) return;
       claimed = true;
       await _postHocClaim?.cancel();
-    _fileWatchDebounce?.cancel();
-    await _fileWatch?.cancel();
       if (!await _claim(id, opts)) {
         logStore.add(
             '${leaseConflictMessage(id, _lastConflict!)}\n'
@@ -847,7 +846,9 @@ class EmuServer {
     final root = session.projectRoot.path;
     try {
       _fileWatch = session.projectRoot.watch(recursive: true).listen((e) {
-        final rel = e.path.startsWith(root) ? e.path.substring(root.length).replaceFirst(RegExp(r'^[/\\]'), '') : e.path;
+        // `root/` (not bare `root`): a sibling like `myapp2/` must not match `myapp`.
+        final under = e.path.startsWith('$root/') || e.path.startsWith('$root${Platform.pathSeparator}');
+        final rel = under ? e.path.substring(root.length + 1) : e.path;
         if (isWatchNoise(rel)) return;
         _fileWatchDebounce?.cancel();
         _fileWatchDebounce = Timer(const Duration(milliseconds: 400), () => _broadcast({'type': 'diff', 'reason': 'files'}));
@@ -876,6 +877,9 @@ class EmuServer {
         'scope': scope.wire,
         if (base != null) 'base': base,
         'snapshots': diff.snapshots.map((e) => e.toJson()).toList(),
+        // The exact trees compared: passing them back to /api/diff/file keeps
+        // each patch consistent with this listing and skips re-snapshotting.
+        if (range != null) ...{'from': range.$1, 'to': range.$2},
         'files': range == null ? [] : (await diff.files(range)).map((f) => f.toJson()).toList(),
         if (range == null) 'note': scope == DiffScope.base ? 'no base branch found' : 'no reload recorded yet',
       });
@@ -887,9 +891,20 @@ class EmuServer {
   Future<Response> _diffFile(Request req) async {
     final path = req.url.queryParameters['path'];
     if (path == null || path.isEmpty) return _json({'error': 'path is required'}, status: 400);
+    if (!isProjectRelativePath(path)) return _json({'error': 'path must be relative to the project'}, status: 400);
     if (!await diff.isRepo()) return _json({'git': false, 'patch': ''});
     try {
-      final (_, _, range) = await _diffRange(req.url.queryParameters);
+      final q = req.url.queryParameters;
+      final (from, to) = (q['from'], q['to']);
+      final (String, String)? range;
+      if (from != null || to != null) {
+        if (from == null || to == null || !isObjectId(from) || !isObjectId(to)) {
+          throw DiffException('from/to must both be tree ids from /api/diff/files');
+        }
+        range = (from, to);
+      } else {
+        (_, _, range) = await _diffRange(q);
+      }
       return _json({'git': true, 'path': path, 'patch': range == null ? '' : await diff.patch(range, path)});
     } on DiffException catch (e) {
       return _json({'git': true, 'error': e.message}, status: 400);
@@ -1127,6 +1142,9 @@ class EmuServer {
   Future<void> dispose() async {
     _disposed = true;
     await _postHocClaim?.cancel();
+    _fileWatchDebounce?.cancel();
+    await _fileWatch?.cancel();
+    await _snapshotSub?.cancel(); // no git snapshots while shutting down
     await _setupWatch?.cancel();
     _portWatch?.cancel();
     await _reapplyRun;

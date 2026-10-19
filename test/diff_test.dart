@@ -70,6 +70,23 @@ void main() {
     }
   });
 
+  test('isObjectId accepts only full SHA-1/SHA-256 ids', () {
+    expect(isObjectId('a' * 40), isTrue);
+    expect(isObjectId('0123456789abcdef' * 4), isTrue);
+    for (final s in ['a' * 39, 'a' * 41, 'A' * 40, 'HEAD', 'develop', '-p', '${'a' * 40}^', '']) {
+      expect(isObjectId(s), isFalse, reason: s);
+    }
+  });
+
+  test('isProjectRelativePath rejects escapes and pathspec magic', () {
+    for (final p in ['lib/a.dart', 'a', 'lib/..foo/x.dart', 'web/vendor/x.min.js']) {
+      expect(isProjectRelativePath(p), isTrue, reason: p);
+    }
+    for (final p in ['', '/etc/passwd', '../x', 'lib/../../x', ':(top)x', ':/x', r'C:\x', r'lib\..\x']) {
+      expect(isProjectRelativePath(p), isFalse, reason: p);
+    }
+  });
+
   test('DiffScope wire names round-trip', () {
     for (final s in DiffScope.values) {
       expect(DiffScope.fromWire(s.wire), s);
@@ -143,6 +160,20 @@ void main() {
       expect(patch, contains('+a2'));
     });
 
+    test('records land in call order even when an earlier capture is slower', () async {
+      // The first capture's write-tree is held back, so unserialized records
+      // would finish (and append) out of order.
+      var writeTrees = 0;
+      final slow = GitDiff(dir.path, runner: (args, {environment}) async {
+        if (args.contains('write-tree') && writeTrees++ == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 300));
+        }
+        return Process.run('git', args, environment: environment);
+      });
+      await Future.wait([slow.record('launch'), slow.record('reload-1'), slow.record('reload-2')]);
+      expect(slow.snapshots.map((s) => s.reason), ['reload-1', 'reload-2']);
+    });
+
     test('keeps only the last two snapshots', () async {
       await diff.record('launch');
       await diff.record('reload');
@@ -167,6 +198,18 @@ void main() {
       final sub = GitDiff('${dir.path}/app');
       final range = await sub.range(DiffScope.head);
       expect([for (final f in await sub.files(range!)) f.path], ['lib/m.dart']);
+    });
+
+    test('a subdirectory project snapshots only its own files', () async {
+      write('app/lib/m.dart', 'm\n');
+      write('other/z.txt', 'outside-only-content\n');
+      await GitDiff('${dir.path}/app').captureTree();
+      final blob = (await git(['hash-object', 'other/z.txt'])).trim();
+      final r = await Process.run('git', ['-C', dir.path, 'cat-file', '-e', blob]);
+      expect(r.exitCode, isNot(0), reason: 'the file outside the project was hashed into the object store');
+      // ...while the project's own new file was.
+      final own = (await git(['hash-object', 'app/lib/m.dart'])).trim();
+      await git(['cat-file', '-e', own]);
     });
 
     test('head on an unborn branch diffs against the empty tree', () async {

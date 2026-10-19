@@ -94,6 +94,23 @@ final _safeRef = RegExp(r'^[A-Za-z0-9][A-Za-z0-9._/-]*$');
 /// `-x`, no `..` ranges, no revision syntax (`^`, `~`, `@{`, `:`).
 bool isSafeRef(String ref) => _safeRef.hasMatch(ref) && !ref.contains('..') && !ref.endsWith('/');
 
+final _objectId = RegExp(r'^[0-9a-f]{40}([0-9a-f]{24})?$');
+
+/// A full SHA-1 or SHA-256 object id — what /api/diff/files hands out as
+/// `from`/`to`, and nothing else (no refs, no revision syntax).
+bool isObjectId(String s) => _objectId.hasMatch(s);
+
+/// A path as /api/diff/files lists it: relative, inside the project. Rejects
+/// absolute paths, `..` segments and git pathspec magic (`:(top)`, `:/`) —
+/// it's handed to git after `--`, where magic still applies.
+bool isProjectRelativePath(String p) =>
+    p.isNotEmpty &&
+    !p.startsWith('/') &&
+    !p.startsWith('\\') &&
+    !p.startsWith(':') &&
+    !RegExp(r'^[A-Za-z]:').hasMatch(p) &&
+    !p.split(RegExp(r'[/\\]')).contains('..');
+
 /// The branch a feature branch most likely forked from: the git-flow
 /// integration branch first (develop/development), then main/master. A local
 /// branch beats a remote one; among remotes upstream first — in a fork layout
@@ -191,15 +208,23 @@ class GitDiff {
       final real = File(realIndex);
       if (real.existsSync()) real.copySync(index);
       final env = {'GIT_INDEX_FILE': index};
-      await _out(['add', '-A', '--', ':/'], environment: env);
+      // Only the project dir (`.` — git runs with `-C root`): diffs are
+      // `--relative` anyway, and the seeded index keeps everything outside
+      // as it is, so the rest of a monorepo isn't re-hashed on every capture.
+      await _out(['add', '-A', '--', '.'], environment: env);
       return (await _out(['write-tree'], environment: env)).trim();
     } finally {
       tmp.deleteSync(recursive: true);
     }
   }
 
+  Future<void> _recording = Future.value();
+
   /// Records the working tree at a launch/reload; keeps the last two.
-  Future<void> record(String reason) async {
+  /// Serialized: status changes in quick succession must not land out of order.
+  Future<void> record(String reason) => _recording = _recording.then((_) => _record(reason));
+
+  Future<void> _record(String reason) async {
     if (!await isRepo()) return;
     try {
       snapshots.add(TreeSnapshot(await captureTree(), reason, DateTime.now()));

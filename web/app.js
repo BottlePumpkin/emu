@@ -147,7 +147,7 @@ function connect() {
     const msg = JSON.parse(ev.data);
     if (msg.type === 'log') appendEntry(msg.entry);
     else if (msg.type === 'status') setStatus(msg.status);
-    else if (msg.type === 'diff') loadDiffFiles(); // files edited, or a launch/reload snapshotted the tree
+    else if (msg.type === 'diff') onDiffChanged(); // files edited, or a launch/reload snapshotted the tree
   };
 }
 
@@ -324,7 +324,7 @@ const diffEls = {
   files: document.getElementById('diff-files'),
   view: document.getElementById('diff-view'),
 };
-const diffState = { files: [], current: null, loading: false, again: false, shown: null };
+const diffState = { files: [], range: null, current: null, loading: false, again: false, shown: null, stale: false };
 const DIFF_PREFS_KEY = 'emu.diffPrefs';
 
 function loadDiffPrefs() {
@@ -350,6 +350,14 @@ function diffQuery(extra = {}) {
   return q.toString();
 }
 
+// Every listing snapshots the working tree (`git add -A` into a scratch
+// index), so only re-list while the tab is on screen; otherwise remember it's
+// out of date and catch up when the tab is opened.
+function onDiffChanged() {
+  if (document.getElementById('changes').hidden) diffState.stale = true;
+  else loadDiffFiles();
+}
+
 function visibleDiffFiles() {
   return diffState.files.filter(f => !(diffEls.hideGen.checked && f.generated));
 }
@@ -359,6 +367,7 @@ async function loadDiffFiles() {
   // rather than dropping it (the in-flight answer may predate the reload).
   if (diffState.loading) { diffState.again = true; return; }
   diffState.loading = true;
+  diffState.stale = false;
   diffEls.base.hidden = diffEls.scope.value !== 'base';
   const query = diffQuery();
   try {
@@ -371,9 +380,11 @@ async function loadDiffFiles() {
     diffEls.tab.hidden = false;
     if (j.error) {
       diffState.files = [];
+      diffState.range = null;
       diffEls.note.textContent = j.error;
     } else {
       diffState.files = j.files;
+      diffState.range = j.from && j.to ? { from: j.from, to: j.to } : null;
       if (j.base && !diffEls.base.value) diffEls.base.placeholder = j.base;
       diffEls.note.textContent = j.note || snapshotNote(j.snapshots);
     }
@@ -420,7 +431,8 @@ async function loadDiffPatch(file) {
   if (file.binary) { view.innerHTML = head + '<div class="diff-note">binary file — contents not compared</div>'; return; }
   const path = file.path;
   try {
-    const r = await fetch(`/api/diff/file?${diffQuery({ path })}`);
+    // The listing's own trees: counts and patch agree, and no re-snapshot per click.
+    const r = await fetch(`/api/diff/file?${diffQuery({ path, ...(diffState.range || {}) })}`);
     const j = await r.json();
     if (diffState.current !== path) return; // the user moved on while this loaded
     view.innerHTML = head + (j.error ? `<div class="diff-note">${escapeHtml(j.error)}</div>` : renderPatch(j.patch || ''));
@@ -454,7 +466,7 @@ function showTab(name) {
   document.getElementById('log-tools').hidden = name !== 'logs';
   document.getElementById('changes').hidden = name !== 'changes';
   document.getElementById('diff-tools').hidden = name !== 'changes';
-  if (name === 'changes') loadDiffFiles();
+  if (name === 'changes' && diffState.stale) loadDiffFiles();
 }
 
 document.querySelectorAll('.tab').forEach(t => { t.onclick = () => showTab(t.dataset.tab); });

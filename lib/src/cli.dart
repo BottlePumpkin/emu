@@ -2020,10 +2020,14 @@ Future<int> _diffCmd(List<String> args) async {
     }
     return 1;
   }
-  final only = res.rest.toSet();
+  // A path selects that file or everything under it (`emu diff lib/`).
+  final only = [
+    for (final p in res.rest) p.replaceFirst(RegExp(r'^\.(/|$)'), '').replaceFirst(RegExp(r'/+$'), ''),
+  ];
+  bool selected(String path) => only.isEmpty || only.any((p) => p.isEmpty || path == p || path.startsWith('$p/'));
   final files = [
     for (final f in (listing['files'] as List).cast<Map<String, dynamic>>())
-      if ((only.isEmpty || only.contains(f['path'])) && (res.flag('all') || f['generated'] != true)) f,
+      if (selected(f['path'] as String) && (res.flag('all') || f['generated'] != true)) f,
   ];
   final hidden = (listing['files'] as List).length - files.length;
 
@@ -2031,7 +2035,13 @@ Future<int> _diffCmd(List<String> args) async {
   if (!res.flag('stat')) {
     for (final f in files) {
       if (f['binary'] == true) continue;
-      final r = await fetch('/api/diff/file', {...query, 'path': f['path'] as String});
+      final r = await fetch('/api/diff/file', {
+        ...query,
+        'path': f['path'] as String,
+        // Same trees as the listing: consistent counts, no re-snapshot per file.
+        if (listing['from'] != null) 'from': listing['from'] as String,
+        if (listing['to'] != null) 'to': listing['to'] as String,
+      });
       patches[f['path'] as String] = (r?['patch'] as String?) ?? '';
     }
   }
